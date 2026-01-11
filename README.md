@@ -73,10 +73,8 @@ Exemple d’évènement émis lors de la création d’un emprunt :
 À la racine :
 
 ```bash
-docker compose up --build
+docker-compose up --build
 ```
-
-> Selon votre version, utilisez `docker-compose` au lieu de `docker compose`.
 
 ---
 
@@ -87,7 +85,7 @@ Ouvrir : `http://localhost:8761`
 Vérifier que les services sont enregistrés.
 
 ### 2) Gateway
-Les routes passent par la gateway (port selon configuration dans votre projet).
+Les routes passent par la gateway.
 
 ### 3) Kafka / notifications
 Créer un emprunt via l’API de `emprunter-service` (via la gateway si configurée).  

@@ -1,0 +1,208 @@
+version: "2.4"
+
+services:
+
+  # ==========================================================
+  # 1) Service discovery (Eureka) + API Gateway
+  # ==========================================================
+  eureka-server:
+    build: ./eurika
+    container_name: eureka-service
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_APPLICATION_NAME=eureka-service
+    networks:
+      - biblio-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8761/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  gateway-service:
+    build: ./gateway
+    container_name: gateway-service
+    ports:
+      - "9999:9999"
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    environment:
+      - SPRING_APPLICATION_NAME=gateway-service
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka
+    networks:
+      - biblio-network
+
+  # ==========================================================
+  # 2) Databases (1 MySQL instance per microservice)
+  # ==========================================================
+  mysql-user:
+    image: mysql:8.0
+    container_name: mysql-user
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=db_user
+    volumes:
+      - mysql_user_data:/var/lib/mysql
+    networks:
+      - biblio-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  mysql-book:
+    image: mysql:8.0
+    container_name: mysql-book
+    ports:
+      - "3308:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=db_book
+    volumes:
+      - mysql_book_data:/var/lib/mysql
+    networks:
+      - biblio-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  mysql-emprunter:
+    image: mysql:8.0
+    container_name: mysql-emprunter
+    ports:
+      - "3309:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=db_emprunter
+    volumes:
+      - mysql_emprunter_data:/var/lib/mysql
+    networks:
+      - biblio-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ==========================================================
+  # 3) Messaging layer (Kafka + Zookeeper)
+  # ==========================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+    networks:
+      - biblio-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+    networks:
+      - biblio-network
+
+  # ==========================================================
+  # 4) Application microservices (business logic)
+  # ==========================================================
+  user-service:
+    build: ./user
+    container_name: user-service
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      mysql-user:
+        condition: service_healthy
+    environment:
+      - SPRING_APPLICATION_NAME=user-service
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-user:3306/db_user?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+    networks:
+      - biblio-network
+
+  book-service:
+    build: ./book
+    container_name: book-service
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      mysql-book:
+        condition: service_healthy
+    environment:
+      - SPRING_APPLICATION_NAME=book-service
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-book:3306/db_book?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+    networks:
+      - biblio-network
+
+  emprunt-service:
+    build: ./emprunter
+    container_name: emprunt-service
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      mysql-emprunter:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      user-service:
+        condition: service_started
+      book-service:
+        condition: service_started
+    environment:
+      - SPRING_APPLICATION_NAME=emprunt-service
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-emprunter:3306/db_emprunter?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    networks:
+      - biblio-network
+
+  # ==========================================================
+  # 5) Async notifications (Kafka consumer only)
+  # ==========================================================
+  notification-service:
+    build: ./notification
+    container_name: notification-service
+    depends_on:
+      kafka:
+        condition: service_started
+    environment:
+      - SPRING_APPLICATION_NAME=notification-service
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    networks:
+      - biblio-network
+
+networks:
+  biblio-network:
+    driver: bridge
+
+volumes:
+  mysql_user_data:
+  mysql_book_data:
+  mysql_emprunter_data:

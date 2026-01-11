@@ -1,0 +1,3 @@
+com/org/biblio/notification/NotificationConsumer.class
+com/org/biblio/notification/NotificationApplication.class
+com/org/emprunt/event/EmpruntCreatedEvent.class
