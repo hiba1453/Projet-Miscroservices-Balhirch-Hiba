@@ -78,7 +78,7 @@ docker-compose up --build
 
 ---
 
-## Vérifications rapides
+## Vérifications 
 
 ### 1) Eureka
 Ouvrir : `http://localhost:8761`  
